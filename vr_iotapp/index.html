@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>IoT Practice – Device Monitoring Dashboard</title>
+  <!-- Tailwind (CDN build for single-file demo) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // Tailwind config tweaks
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0f7ff', 100: '#e0efff', 200: '#b9dbff', 300: '#8ec4ff',
+              400: '#5aa9ff', 500: '#2a8dff', 600: '#0e72e6', 700: '#0a5ab4',
+              800: '#08458a', 900: '#073a73'
+            },
+            ok: '#16a34a',
+            warn: '#f59e0b',
+            crit: '#ef4444'
+          },
+          boxShadow: {
+            soft: '0 10px 25px -10px rgba(0,0,0,0.25)'
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Subtle scrollbar for alerts panel */
+    .thin-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+    .thin-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+    .thin-scrollbar { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+    /* Simple pulse for updating cards */
+    .updating { animation: pulse 0.8s ease-in-out 1; }
+    @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(59,130,246,0.3);} 100% { box-shadow: 0 0 0 14px rgba(59,130,246,0);} }
+  </style>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-800">
+  <!-- App Shell -->
+  <header class="bg-white/80 backdrop-blur border-b border-slate-200 sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="h-10 w-10 rounded-2xl bg-brand-600 text-white grid place-content-center shadow-soft">📡</div>
+        <div>
+          <h1 class="text-xl font-semibold leading-tight">IoT Practice – Device Monitoring Dashboard</h1>
+          <p class="text-xs text-slate-500">Single-file demo • Tailwind + Vanilla JS • Auto-refresh + AI alerts</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <label class="text-sm text-slate-600">Auto‑Refresh</label>
+        <select id="refreshInterval" class="px-3 py-2 rounded-xl bg-slate-100 border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400">
+          <option value="0">Off</option>
+          <option value="5000">Every 5s</option>
+          <option value="10000">Every 10s</option>
+          <option value="30000" selected>Every 30s</option>
+          <option value="60000">Every 60s</option>
+        </select>
+        <button id="refreshNow" class="ml-2 px-3 py-2 rounded-xl bg-brand-600 text-white text-sm hover:bg-brand-700 transition">Refresh Now</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <!-- Summary -->
+    <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="p-4 bg-white rounded-2xl shadow-soft border border-slate-200">
+        <div class="text-sm text-slate-500">Total Devices</div>
+        <div id="statTotal" class="text-2xl font-semibold mt-1">0</div>
+      </div>
+      <div class="p-4 bg-white rounded-2xl shadow-soft border border-slate-200">
+        <div class="text-sm text-slate-500">Online</div>
+        <div class="flex items-end gap-2 mt-1">
+          <div id="statOnline" class="text-2xl font-semibold text-ok">0</div>
+          <div id="statOnlinePct" class="text-xs text-slate-500">0%</div>
+        </div>
+      </div>
+      <div class="p-4 bg-white rounded-2xl shadow-soft border border-slate-200">
+        <div class="text-sm text-slate-500">Offline</div>
+        <div id="statOffline" class="text-2xl font-semibold text-crit mt-1">0</div>
+      </div>
+      <div class="p-4 bg-white rounded-2xl shadow-soft border border-slate-200">
+        <div class="text-sm text-slate-500">Open Alerts</div>
+        <div id="statAlerts" class="text-2xl font-semibold text-warn mt-1">0</div>
+      </div>
+    </section>
+
+    <!-- Toolbar -->
+    <section class="mt-6 flex flex-col lg:flex-row gap-4 items-start">
+      <div class="flex-1 w-full">
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-soft">
+          <div class="flex items-center justify-between gap-3 flex-wrap">
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-slate-600">Add Demo Devices</span>
+              <select id="newDeviceType" class="px-3 py-2 rounded-xl bg-slate-100 border border-slate-200 text-sm">
+                <option value="temperature">Temperature Sensor</option>
+                <option value="motion">Motion Detector</option>
+                <option value="light">Smart Light</option>
+                <option value="humidity">Humidity Sensor</option>
+                <option value="power">Smart Plug / Power</option>
+              </select>
+              <input id="newDeviceCount" type="number" min="1" max="20" value="3" class="w-20 px-3 py-2 rounded-xl bg-slate-100 border border-slate-200 text-sm" />
+              <button id="addDevices" class="px-3 py-2 rounded-xl bg-slate-800 text-white text-sm hover:bg-slate-900">Add</button>
+            </div>
+            <div class="flex items-center gap-2">
+              <input id="search" type="text" placeholder="Search devices…" class="px-3 py-2 rounded-xl bg-slate-100 border border-slate-200 text-sm" />
+              <button id="clearAlerts" class="px-3 py-2 rounded-xl bg-white border border-slate-200 text-sm hover:bg-slate-50">Clear Alerts</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Alerts Panel -->
+      <aside class="w-full lg:w-96 bg-white rounded-2xl border border-slate-200 shadow-soft">
+        <div class="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+          <h3 class="font-semibold">Alerts</h3>
+          <span id="alertBadge" class="text-xs px-2 py-1 rounded-full bg-slate-100">0</span>
+        </div>
+        <div id="alertsList" class="max-h-[420px] overflow-auto thin-scrollbar divide-y divide-slate-100"></div>
+      </aside>
+    </section>
+
+    <!-- Device Grid -->
+    <section class="mt-6">
+      <div id="deviceGrid" class="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"></div>
+    </section>
+  </main>
+
+  <!-- Templates (hidden) -->
+  <template id="deviceCardTemplate">
+    <div class="device-card p-4 bg-white rounded-2xl border border-slate-200 shadow-soft flex flex-col gap-3">
+      <div class="flex items-start justify-between gap-2">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="device-name font-semibold truncate max-w-[14ch]"></span>
+            <span class="device-type text-xs px-2 py-0.5 rounded-full bg-slate-100"></span>
+          </div>
+          <div class="text-xs text-slate-500 mt-0.5">ID: <span class="device-id"></span></div>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="status-dot h-2.5 w-2.5 rounded-full inline-block"></span>
+          <span class="device-status text-sm"></span>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3 text-sm">
+        <div class="bg-slate-50 rounded-xl p-3">
+          <div class="text-xs text-slate-500">Sensor Reading</div>
+          <div class="reading text-lg font-semibold mt-0.5">—</div>
+        </div>
+        <div class="bg-slate-50 rounded-xl p-3">
+          <div class="text-xs text-slate-500">Battery</div>
+          <div class="battery mt-1 flex items-center gap-2">
+            <div class="battery-bar flex-1 h-2 rounded-full bg-slate-200 overflow-hidden"><div class="h-full w-[0%]"></div></div>
+            <div class="battery-text text-sm">—</div>
+          </div>
+        </div>
+        <div class="bg-slate-50 rounded-xl p-3">
+          <div class="text-xs text-slate-500">Last Update</div>
+          <div class="updated-at text-sm mt-0.5">—</div>
+        </div>
+        <div class="bg-slate-50 rounded-xl p-3">
+          <div class="text-xs text-slate-500">Last Reboot</div>
+          <div class="last-reboot text-sm mt-0.5">—</div>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 pt-1">
+        <button class="btn-power px-3 py-2 text-sm rounded-xl bg-slate-800 text-white hover:bg-slate-900">Power Toggle</button>
+        <button class="btn-reboot px-3 py-2 text-sm rounded-xl bg-brand-600 text-white hover:bg-brand-700">Reboot</button>
+      </div>
+    </div>
+  </template>
+
+  <template id="alertItemTemplate">
+    <div class="px-4 py-3 text-sm">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="font-medium"><span class="alert-severity"></span> • <span class="alert-title"></span></div>
+          <div class="text-slate-600 mt-0.5"><span class="alert-msg"></span></div>
+          <div class="text-xs text-slate-500 mt-1">Device: <span class="alert-device"></span> • <span class="alert-time"></span></div>
+          <div class="text-[11px] text-slate-400 mt-1">Source: Gemini AI Heuristics</div>
+        </div>
+        <button class="btn-dismiss text-xs px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200">Dismiss</button>
+      </div>
+    </div>
+  </template>
+
+  <script>
+    // --- Data Model ---
+    const devices = new Map(); // id -> device object
+    const alerts = []; // current open alerts
+
+    const DEVICE_TYPES = {
+      temperature: {
+        label: 'Temperature',
+        unit: '°C',
+        gen: () => (18 + Math.random() * 14).toFixed(1), // 18-32
+        heuristic: (d, val, ctx) => {
+          const t = parseFloat(val);
+          if (t >= 45) return mkAlert('CRITICAL', 'High temperature', d, `Reading ${t}°C ≥ 45°C. Risk of thermal runaway or enclosure fire in poorly ventilated racks.`);
+          if (t >= 35) return mkAlert('WARNING', 'Elevated temperature', d, `Reading ${t}°C ≥ 35°C. Likely HVAC degradation or blocked airflow. Recommend site check.`);
+          if (ctx.delta && Math.abs(ctx.delta) >= 6) return mkAlert('WARNING', 'Rapid temperature swing', d, `ΔT ≈ ${ctx.delta.toFixed(1)}°C in last cycle. Abrupt changes stress components.`);
+        }
+      },
+      motion: {
+        label: 'Motion',
+        unit: 'events/min',
+        gen: () => (Math.random() < 0.8 ? 0 : Math.floor(Math.random() * 6)),
+        heuristic: (d, val) => {
+          const hour = new Date().getHours();
+          if (val > 0 && (hour >= 22 || hour < 6)) {
+            return mkAlert('WARNING', 'Unexpected off-hours motion', d, `Detected ${val} event(s) between 22:00–06:00. Check physical security or scheduled tests.`);
+          }
+        }
+      },
+      light: {
+        label: 'Smart Light',
+        unit: 'W',
+        gen: () => (Math.random() < 0.5 ? 0 : (5 + Math.random() * 15).toFixed(1)),
+        heuristic: (d, val) => {
+          if (d.online && d.powerState === false && val > 1) {
+            return mkAlert('WARNING', 'Phantom power usage', d, `Measured ${val}${'W'} while device is logically OFF. Possible relay failure or wiring issue.`);
+          }
+        }
+      },
+      humidity: {
+        label: 'Humidity',
+        unit: '%RH',
+        gen: () => (30 + Math.random() * 50).toFixed(1), // 30-80%
+        heuristic: (d, val) => {
+          const h = parseFloat(val);
+          if (h < 20 || h > 80) return mkAlert('CRITICAL', 'Humidity out of range', d, `Reading ${h}%RH outside safe envelope (20–80%). Risk of ESD (low) or corrosion (high).`);
+          if (h < 30 || h > 70) return mkAlert('WARNING', 'Humidity approaching limits', d, `Reading ${h}%RH approaching boundaries. Review HVAC/dehumidifiers.`);
+        }
+      },
+      power: {
+        label: 'Smart Plug',
+        unit: 'W',
+        gen: () => (Math.random() < 0.3 ? 0 : (20 + Math.random() * 300).toFixed(0)),
+        heuristic: (d, val) => {
+          const watts = parseFloat(val);
+          if (watts > 250) return mkAlert('WARNING', 'High load on outlet', d, `Load ${watts}W near/outside rated capacity for typical smart plugs. Inspect connected appliance.`);
+        }
+      }
+    };
+
+    function randomId() {
+      return Math.random().toString(36).slice(2, 10);
+    }
+
+    function nowTs() {
+      return new Date().toLocaleString();
+    }
+
+    function mkDevice(type) {
+      const meta = DEVICE_TYPES[type];
+      return {
+        id: randomId(),
+        name: `${meta.label} #${Math.floor(Math.random()*900+100)}`,
+        type,
+        unit: meta.unit,
+        online: Math.random() > 0.08,
+        battery: Math.floor(40 + Math.random() * 60), // 40-100
+        powerState: Math.random() > 0.5, // for actuated devices
+        reading: meta.gen(),
+        lastReading: null,
+        lastUpdate: nowTs(),
+        lastReboot: '—'
+      };
+    }
+
+    // --- Rendering ---
+    const gridEl = document.getElementById('deviceGrid');
+    const cardTpl = document.getElementById('deviceCardTemplate');
+    const alertTpl = document.getElementById('alertItemTemplate');
+
+    function render() {
+      // filter
+      const q = document.getElementById('search').value.trim().toLowerCase();
+      const list = Array.from(devices.values()).filter(d => !q || d.name.toLowerCase().includes(q) || d.id.includes(q) || d.type.includes(q));
+
+      gridEl.innerHTML = '';
+      for (const d of list) {
+        const frag = cardTpl.content.cloneNode(true);
+        const card = frag.querySelector('.device-card');
+        card.dataset.id = d.id;
+        card.classList.add('updating');
+
+        frag.querySelector('.device-name').textContent = d.name;
+        frag.querySelector('.device-type').textContent = DEVICE_TYPES[d.type].label;
+        frag.querySelector('.device-id').textContent = d.id;
+
+        // status
+        const statusDot = frag.querySelector('.status-dot');
+        const statusText = frag.querySelector('.device-status');
+        statusDot.classList.remove('bg-slate-300','bg-green-500','bg-rose-500');
+        statusDot.classList.add(d.online ? 'bg-green-500' : 'bg-rose-500');
+        statusText.textContent = d.online ? 'Online' : 'Offline';
+
+        // reading
+        frag.querySelector('.reading').textContent = `${d.reading} ${d.unit}`;
+
+        // battery bar
+        const bar = frag.querySelector('.battery-bar > div');
+        bar.style.width = `${d.battery}%`;
+        bar.className = '';
+        bar.classList.add('h-full');
+        if (d.battery >= 60) bar.classList.add('bg-green-500');
+        else if (d.battery >= 30) bar.classList.add('bg-yellow-400');
+        else bar.classList.add('bg-rose-500');
+        frag.querySelector('.battery-text').textContent = `${d.battery}%`;
+
+        // timestamps
+        frag.querySelector('.updated-at').textContent = d.lastUpdate;
+        frag.querySelector('.last-reboot').textContent = d.lastReboot;
+
+        // controls
+        frag.querySelector('.btn-power').addEventListener('click', () => togglePower(d.id));
+        frag.querySelector('.btn-reboot').addEventListener('click', () => rebootDevice(d.id));
+
+        gridEl.appendChild(frag);
+      }
+
+      updateSummary();
+      renderAlerts();
+    }
+
+    function updateSummary() {
+      const total = devices.size;
+      const online = Array.from(devices.values()).filter(d => d.online).length;
+      const offline = total - online;
+      document.getElementById('statTotal').textContent = total;
+      document.getElementById('statOnline').textContent = online;
+      document.getElementById('statOffline').textContent = offline;
+      document.getElementById('statOnlinePct').textContent = total ? `${Math.round((online/total)*100)}%` : '0%';
+      document.getElementById('statAlerts').textContent = alerts.length;
+      document.getElementById('alertBadge').textContent = alerts.length;
+    }
+
+    function renderAlerts() {
+      const container = document.getElementById('alertsList');
+      container.innerHTML = '';
+      alerts.forEach((a, idx) => {
+        const frag = alertTpl.content.cloneNode(true);
+        const row = frag.firstElementChild;
+        row.dataset.index = idx;
+        const sev = frag.querySelector('.alert-severity');
+        sev.textContent = a.severity;
+        sev.className = 'alert-severity px-2 py-0.5 rounded-lg text-xs ' + (a.severity==='CRITICAL' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700');
+        frag.querySelector('.alert-title').textContent = a.title;
+        frag.querySelector('.alert-msg').textContent = a.message;
+        frag.querySelector('.alert-device').textContent = `${a.device.name} (${a.device.id})`;
+        frag.querySelector('.alert-time').textContent = new Date(a.time).toLocaleString();
+        frag.querySelector('.btn-dismiss').addEventListener('click', () => {
+          const i = parseInt(row.dataset.index, 10);
+          if (!isNaN(i)) alerts.splice(i,1);
+          render();
+        });
+        container.prepend(frag); // newest on top
+      });
+    }
+
+    // --- Controls ---
+    function togglePower(id) {
+      const d = devices.get(id);
+      if (!d) return;
+      d.powerState = !d.powerState;
+      // Power toggle may change online state for some devices (simulate)
+      if (!d.powerState) {
+        d.online = false;
+      } else {
+        d.online = true;
+        d.lastUpdate = nowTs();
+      }
+      render();
+    }
+
+    function rebootDevice(id) {
+      const d = devices.get(id);
+      if (!d) return;
+      d.lastReboot = nowTs();
+      d.online = true; // assume successful reboot
+      mkAlert('WARNING', 'Device rebooted', d, 'Manual reboot requested via dashboard controls. Monitoring post‑reboot stability.');
+      render();
+    }
+
+    document.getElementById('addDevices').addEventListener('click', () => {
+      const type = document.getElementById('newDeviceType').value;
+      const count = Math.max(1, Math.min(20, parseInt(document.getElementById('newDeviceCount').value || '1', 10)));
+      for (let i=0; i<count; i++) {
+        const d = mkDevice(type);
+        devices.set(d.id, d);
+      }
+      render();
+    });
+
+    document.getElementById('search').addEventListener('input', render);
+    document.getElementById('clearAlerts').addEventListener('click', () => { alerts.splice(0, alerts.length); render(); });
+
+    // --- Auto Refresh ---
+    let refreshTimer = null;
+    function scheduleRefresh(ms) {
+      if (refreshTimer) clearInterval(refreshTimer);
+      if (ms && ms > 0) {
+        refreshTimer = setInterval(() => refreshAll(), ms);
+      }
+    }
+
+    document.getElementById('refreshInterval').addEventListener('change', (e) => {
+      scheduleRefresh(parseInt(e.target.value, 10));
+    });
+    document.getElementById('refreshNow').addEventListener('click', refreshAll);
+
+    // --- Update cycle ---
+    function refreshAll() {
+      // Simulate new readings and statuses
+      devices.forEach(d => {
+        d.lastReading = d.reading;
+
+        // probabilistic status/battery drift
+        if (Math.random() < 0.08) d.online = false;
+        if (Math.random() < 0.12) d.online = true;
+        d.battery = Math.max(0, Math.min(100, d.battery - (Math.random() < 0.4 ? 0 : (1 + Math.floor(Math.random()*2)))));
+
+        // update reading if online
+        if (d.online) {
+          const meta = DEVICE_TYPES[d.type];
+          d.reading = meta.gen();
+          d.lastUpdate = nowTs();
+
+          // Heuristic (Gemini AI feature) – generate alerts with rationale
+          const delta = d.lastReading ? parseFloat(d.reading) - parseFloat(d.lastReading) : 0;
+          const aiAlert = meta.heuristic(d, parseFloat(d.reading), { delta });
+          if (aiAlert) alerts.push(aiAlert);
+        } else {
+          // offline alert if prolonged
+          if (Math.random() < 0.25) {
+            alerts.push(mkAlert('CRITICAL', 'Device offline', d, 'Missed heartbeat while auto-refreshing. Possible power/network failure. Check site connectivity.'));
+          }
+        }
+
+        // battery related alerts
+        if (d.battery <= 5) alerts.push(mkAlert('CRITICAL', 'Battery critically low', d, `Battery at ${d.battery}%. Imminent shutdown; schedule immediate replacement/charge.`));
+        else if (d.battery <= 15 && Math.random() < 0.5) alerts.push(mkAlert('WARNING', 'Battery low', d, `Battery at ${d.battery}%. Plan maintenance window for swap/charge in next 24h.`));
+
+        // stale data alert (if online but not updated for long — simulated)
+        if (d.online && Math.random() < 0.05) {
+          alerts.push(mkAlert('WARNING', 'Stale telemetry', d, 'Sensor not publishing expected cadence. Check MQTT/HTTP broker and device scheduler.'));
+        }
+      });
+
+      // keep alerts manageable
+      if (alerts.length > 300) alerts.splice(0, alerts.length - 300);
+      render();
+    }
+
+    function mkAlert(severity, title, device, message) {
+      return { severity, title, device, message, time: Date.now() };
+    }
+
+    // --- Bootstrapping ---
+    (function init() {
+      // Seed with a mix of demo devices
+      const seed = [
+        ...Array.from({length: 4}, () => mkDevice('temperature')),
+        ...Array.from({length: 3}, () => mkDevice('motion')),
+        ...Array.from({length: 3}, () => mkDevice('light')),
+        ...Array.from({length: 2}, () => mkDevice('humidity')),
+        ...Array.from({length: 2}, () => mkDevice('power')),
+      ];
+      seed.forEach(d => devices.set(d.id, d));
+      render();
+
+      // Start auto-refresh from initial dropdown value
+      const initial = parseInt(document.getElementById('refreshInterval').value, 10);
+      scheduleRefresh(initial);
+    })();
+  </script>
+</body>
+</html>
