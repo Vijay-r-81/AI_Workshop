@@ -1,1 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Usage Counter</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root { --bg:#f7f7f8; --fg:#0f172a; --muted:#6b7280; --ok:#14532d; --warn:#92400e; --err:#7f1d1d; --card:#ffffff; --accent:#111827; --accentFg:#ffffff; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; font: 15px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+      background: var(--bg); color: var(--fg); display: grid; place-items: center;
+    }
+    .wrap {
+      width: min(720px, 92vw); background: var(--card); border: 1px solid #e5e7eb; border-radius: 14px; padding: 20px 18px; box-shadow: 0 4px 20px rgba(0,0,0,.05);
+    }
+    h1 { font-size: 18px; margin: 0 0 12px 0; letter-spacing: .2px; }
+    .row { display: flex; gap: 10px; align-items: center; margin: 10px 0 14px; }
+    input[type="text"] {
+      flex: 1; padding: 10px 12px; border-radius: 10px; border: 1px solid #d1d5db; outline: none; background: #fff;
+    }
+    input[type="text"]:focus { border-color: #111827; }
+    button {
+      appearance: none; border: 1px solid #111827; background: #111827; color: #fff;
+      padding: 10px 14px; border-radius: 10px; cursor: pointer; transition: transform .02s ease-in-out, opacity .15s;
+    }
+    button.secondary { border-color: #d1d5db; background: #fff; color: #111827; }
+    button.ghost { border-color: #e5e7eb; background: #f9fafb; color: #111827; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
+    .countCard {
+      margin-top: 8px; padding: 16px; border: 1px solid #e5e7eb; border-radius: 12px; background: #fafafa; display: flex; justify-content: space-between; align-items: center;
+    }
+    .label { color: var(--muted); font-size: 13px; }
+    .count { font: 600 28px/1 monospace; }
+    .status {
+      margin-top: 12px; padding: 10px 12px; border-radius: 10px; display: none;
+    }
+    .status.warn { display: block; background: #fef3c7; color: var(--warn); border: 1px solid #fde68a; }
+    .status.err  { display: block; background: #fee2e2; color: var(--err);  border: 1px solid #fecaca; }
+    .status.ok   { display: block; background: #dcfce7; color: var(--ok);   border: 1px solid #bbf7d0; }
+    .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <main class="wrap" role="main">
+    <h1>Usage Counter</h1>
 
+    <div class="row" aria-label="name input">
+      <input id="nameInput" type="text" placeholder="Enter your name…" autocomplete="off" />
+      <button id="startBtn" title="Save name and increment counter">Start</button>
+      <button id="forgetBtn" class="ghost" title="Clear saved name & disable actions">Forget</button>
+    </div>
+
+    <div class="grid">
+      <button id="incBtn" class="secondary" disabled title="Increment counter">Increment</button>
+      <button id="refreshBtn" class="secondary" disabled title="Refresh current count">Refresh</button>
+    </div>
+
+    <div class="countCard" aria-live="polite" aria-atomic="true">
+      <div>
+        <div class="label">Saved name</div>
+        <div id="savedName" style="font-weight:600;">—</div>
+      </div>
+      <div>
+        <div class="label">Current count</div>
+        <div id="count" class="count">—</div>
+      </div>
+    </div>
+
+    <div id="status" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
+    <div class="hint">No data is stored locally. Buttons remain disabled until a name is set.</div>
+  </main>
+
+  <script>
+    (function () {
+      "use strict";
+
+      const API_BASE = "https://api.magiqspark.com/counter/";
+      const nameInput   = document.getElementById("nameInput");
+      const startBtn    = document.getElementById("startBtn");
+      const forgetBtn   = document.getElementById("forgetBtn");
+      const incBtn      = document.getElementById("incBtn");
+      const refreshBtn  = document.getElementById("refreshBtn");
+      const savedNameEl = document.getElementById("savedName");
+      const countEl     = document.getElementById("count");
+      const statusEl    = document.getElementById("status");
+
+      /** In-memory saved name (no localStorage) */
+      let savedName = null;
+
+      /** Helpers */
+      function setButtonsEnabled(enabled) {
+        incBtn.disabled = !enabled;
+        refreshBtn.disabled = !enabled;
+      }
+
+      function updateSavedNameUI() {
+        savedNameEl.textContent = savedName ? savedName : "—";
+        setButtonsEnabled(!!savedName);
+      }
+
+      function showStatus(kind, msg) {
+        // kind: "ok" | "warn" | "err"
+        statusEl.className = "status " + (kind || "");
+        statusEl.textContent = msg || "";
+        statusEl.style.display = msg ? "block" : "none";
+      }
+
+      function clearStatus() {
+        showStatus("", "");
+      }
+
+      function validateName(name) {
+        if (!name || !name.trim()) {
+          showStatus("warn", "Please enter a non-empty name.");
+          return null;
+        }
+        const cleaned = name.trim();
+        if (cleaned.length > 80) {
+          showStatus("warn", "Name is too long. Keep it under 80 characters.");
+          return null;
+        }
+        return cleaned;
+      }
+
+      async function withTimeout(promise, ms = 12000) {
+        const controller = new AbortController();
+        const t = setTimeout(() => controller.abort(), ms);
+        try {
+          const res = await promise(controller.signal);
+          clearTimeout(t);
+          return res;
+        } catch (e) {
+          clearTimeout(t);
+          throw e;
+        }
+      }
+
+      async function postIncrement(name) {
+        // POST to increment
+        return withTimeout(async (signal) => {
+          const resp = await fetch(API_BASE, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+            signal
+          });
+          if (!resp.ok) {
+            // Avoid exposing request details or URLs; just a user-friendly message
+            const text = await safeReadText(resp);
+            throw new Error(text || "Increment failed.");
+          }
+          // Do not surface success lines.
+          return;
+        });
+      }
+
+      async function getCount(name) {
+        // GET to fetch current count
+        return withTimeout(async (signal) => {
+          const url = API_BASE + "?name=" + encodeURIComponent(name);
+          const resp = await fetch(url, { method: "GET", signal });
+          if (!resp.ok) {
+            const text = await safeReadText(resp);
+            throw new Error(text || "Refresh failed.");
+          }
+          const data = await safeReadJson(resp);
+          if (!data || typeof data.count !== "number") {
+            throw new Error("Unexpected response from server.");
+          }
+          return data.count;
+        });
+      }
+
+      async function safeReadText(resp) {
+        try { return await resp.text(); } catch { return ""; }
+      }
+      async function safeReadJson(resp) {
+        try { return await resp.json(); } catch { return null; }
+      }
+
+      async function startFlow(nameFromInput) {
+        clearStatus();
+        const name = validateName(nameFromInput);
+        if (!name) return;
+        savedName = name;
+        updateSavedNameUI();
+
+        try {
+          await postIncrement(savedName);
+          const c = await getCount(savedName);
+          countEl.textContent = String(c);
+          // Success: keep UI clean (no success logs)
+          clearStatus();
+        } catch (err) {
+          // On error, keep name saved (as requested), but report problem
+          countEl.textContent = "—";
+          showStatus("err", normalizeErr(err));
+        }
+      }
+
+      async function incrementFlow() {
+        if (!savedName) return;
+        clearStatus();
+        try {
+          await postIncrement(savedName);
+          const c = await getCount(savedName);
+          countEl.textContent = String(c);
+          clearStatus();
+        } catch (err) {
+          showStatus("err", normalizeErr(err));
+        }
+      }
+
+      async function refreshFlow() {
+        if (!savedName) return;
+        clearStatus();
+        try {
+          const c = await getCount(savedName);
+          countEl.textContent = String(c);
+          clearStatus();
+        } catch (err) {
+          showStatus("err", normalizeErr(err));
+        }
+      }
+
+      function forgetFlow() {
+        savedName = null;
+        nameInput.value = "";
+        countEl.textContent = "—";
+        updateSavedNameUI();
+        showStatus("ok", "Cleared the saved name.");
+      }
+
+      function normalizeErr(e) {
+        if (e && typeof e.message === "string") {
+          // Trim noisy default messages like "Failed to fetch" / abort
+          if (e.name === "AbortError") return "The request timed out. Please try again.";
+          const m = e.message.trim();
+          if (!m) return "Something went wrong.";
+          // Hide stack/URLs; show concise error
+          return m.length > 240 ? (m.slice(0, 240) + "…") : m;
+        }
+        return "Something went wrong.";
+      }
+
+      /** Wire up events */
+      startBtn.addEventListener("click", () => startFlow(nameInput.value));
+      incBtn.addEventListener("click", () => incrementFlow());
+      refreshBtn.addEventListener("click", () => refreshFlow());
+      forgetBtn.addEventListener("click", () => forgetFlow());
+      nameInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") startFlow(nameInput.value);
+      });
+
+      /** Auto-start from ?name=foo (optional) */
+      (function autoStartFromQuery() {
+        const params = new URLSearchParams(window.location.search);
+        const qn = params.get("name");
+        if (qn) {
+          nameInput.value = qn;
+          // Fire and forget; user sees any errors in status area
+          startFlow(qn);
+        } else {
+          // Initial UI state
+          updateSavedNameUI();
+        }
+      })();
+    })();
+  </script>
+</body>
+</html>
